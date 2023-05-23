@@ -1,0 +1,220 @@
+openapi: 3.0.3
+info:
+  title: Flight API
+  version: 1.0.0
+
+paths:
+  /cities:
+    get:
+      summary: List all available source and destination cities
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /airports:
+    get:
+      summary: List all available source and destination airports
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /cities/{city}/airports:
+    get:
+      summary: List airports within a city
+      parameters:
+        - in: path
+          name: city
+          description: City identifier
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /airports/{airport}/inbound-schedule:
+    get:
+      summary: List inbound schedule for an airport
+      parameters:
+        - in: path
+          description: Airport identifier
+          name: airport
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    dayOfWeek:
+                      type: string
+                    arrivalTime:
+                      type: string
+                    flightNo:
+                      type: string
+                    origin:
+                      type: string
+
+  /airports/{airport}/outbound-schedule:
+    get:
+      summary: List outbound schedule for an airport
+      parameters:
+        - in: path
+          description: Airport identifier
+          name: airport
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    dayOfWeek:
+                      type: string
+                    departureTime:
+                      type: string
+                    flightNo:
+                      type: string
+                    destination:
+                      type: string
+
+  /routes:
+    get:
+      summary: List routes connecting two points
+      parameters:
+        - in: query
+          name: source
+          description: Airport or city name
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: destination
+          description: Airport or city name
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: departureDate
+          required: true
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: bookingClass
+          required: false
+          schema:
+            type: string
+            enum: ['Economy', 'Comfort', 'Business']
+        - in: query
+          name: connectionLimits
+          description: Number limiting connections: 0 (direct), 1, 2, 3, unbound
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    origin:
+                      type: string
+                    destination:
+                      type: string
+                    departureTime:
+                      type: string
+                    arrivalTime:
+                      type: string
+
+  /bookings:
+    post:
+      summary: Create a booking for a selected route for a single passenger
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                route:
+                  type: object
+                  properties:
+                    flightNo:
+                      type: string
+                    departureTime:
+                      type: string
+                    arrivalTime:
+                      type: string
+                    origin:
+                      type: string
+                    destination:
+                      type: string
+                passenger:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    email:
+                      type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookingId:
+                    type: string
+
+  /check-in:
+    post:
+      summary: Online check-in for a flight
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bookingId:
+                  type: string
+      responses:
+        '200':
+          description: OK
