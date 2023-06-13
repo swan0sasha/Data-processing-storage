@@ -124,15 +124,134 @@ ORDER BY day_of_week, time, destination
 class Booking(Resource):
     def post(self):
         json = request.json
-
-
         passenger_name = json['passenger_name']
         passenger_id = json['passenger_id']
         flight_ids = json['flight_ids']
         fare_conditions = json['fare_conditions']
-
         cur = get_db().cursor()
-        #сейчас допишу эту часть кода
+        book_ref = self.get_new_book_ref(cur)
+        book_date = datetime.datetime(2023, 6, 13, 0, 0, 0, 0)
+        ticket_flights = []
+        tickets = []
+        i = 1
+
+        for flight in flight_ids:
+            st, info = self.handle_one_flight(cur, flight, fare_conditions, i)
+            if st >= 400:
+                return make_response(jsonify({'error': info}), 404)
+            ticket_flight = {"ticket_no": info["ticket_no"],
+                             "flight_id": int(flight),
+                             "fare_conditions": fare_conditions,
+                             "amount": info["amount"]}
+            ticket_flights.append(ticket_flight)
+            ticket = {"ticket_no": info["ticket_no"],
+                      "book_ref": book_ref,
+                      "passenger_id": passenger_id,
+                      "passenger_name": passenger_name}
+            tickets.append(ticket)
+            i += 1
+
+        total_amount = 0
+        for ticket_flight in ticket_flights:
+            total_amount += ticket_flight["amount"]
+
+        print(total_amount)
+
+        booking = {
+            "book_ref": book_ref,
+            "total_amount": total_amount
+        }
+
+        cur.execute("""INSERT INTO bookings VALUES (%s, %s, %s)""",
+                    [booking["book_ref"], book_date,
+                     booking["total_amount"]])
+
+        for ticket in tickets:
+            cur.execute("""INSERT INTO tickets VALUES (%s, %s, %s, %s)""",
+                        [ticket["ticket_no"], ticket["book_ref"],
+                         ticket["passenger_id"], ticket["passenger_name"]])
+
+        for ticket_flight in ticket_flights:
+            cur.execute("""INSERT INTO ticket_flights VALUES (%s, %s, %s, %s)""",
+                        [ticket_flight["ticket_no"], ticket_flight["flight_id"],
+                         ticket_flight["fare_conditions"], ticket_flight["amount"]])
+
+        get_db().commit()
+
+        return {"booking": booking,
+                "tickets": tickets,
+                "ticket_flights": ticket_flights}, 201
+
+    def handle_one_flight(self, cur, flight_id, fare_conditions, i):
+        cur.execute("""SELECT status from flights
+WHERE status = 'Scheduled'
+  AND flight_id = %s""", [flight_id])
+        status = cur.fetchall()
+
+        if len(status) == 0:
+            return 405, "Flight " + flight_id + " is not available for booking"
+        total_seats = self.get_total_seats_amount(cur, flight_id, fare_conditions)
+        taken_seats = self.get_taken_sets_amount(cur, flight_id, fare_conditions)
+        print("total: ", total_seats)
+        print("taken: ", taken_seats)
+        if total_seats == taken_seats:
+            return 406, "Flight " + flight_id + " is already full and is not available for booking"
+
+        amount = self.get_amount(cur, flight_id, fare_conditions)
+        if amount == 0:
+            return 407, "Flight " + flight_id + " can't be booked"
+
+        return 201, {"ticket_no": self.get_new_ticket_no(cur, i), "amount": amount}
+
+    @staticmethod
+    def get_new_book_ref(cur):
+        cur.execute("""SELECT book_ref from bookings""")
+        taken = list(map(lambda a: a[0], cur.fetchall()))
+        result = "00" + str(b2a_hex(os.urandom(4))[0:4])[2:6].upper()
+        while result in taken:
+            result = "00" + str(b2a_hex(os.urandom(4))[0:4])[2:6].upper()
+        return result
+
+    @staticmethod
+    def get_new_ticket_no(cur, i):
+        cur.execute("""SELECT ticket_no from ticket_flights ORDER BY ticket_no DESC LIMIT 1""")
+        new_ticket_no = cur.fetchone()[0]
+        return '000' + str(int(new_ticket_no) + i)
+
+    @staticmethod
+    def get_total_seats_amount(cur, flight_id, fare_conditions):
+        cur.execute("""SELECT count(seat_no) from flights
+JOIN seats on flights.aircraft_code = seats.aircraft_code
+WHERE flight_id = %s AND fare_conditions = %s
+GROUP BY flight_id, flights.aircraft_code, fare_conditions""", [flight_id, fare_conditions])
+        data = cur.fetchall()
+        total_seats_am = 0
+        if data:
+            total_seats_am = int(data.pop()[0])
+        return total_seats_am
+
+    @staticmethod
+    def get_taken_sets_amount(cur, flight_id, fare_conditions):
+        cur.execute("""SELECT count(ticket_no) from ticket_flights
+WHERE flight_id = %s AND fare_conditions = %s
+GROUP BY flight_id, fare_conditions""", [flight_id, fare_conditions])
+        data = cur.fetchall()
+        taken_sets_am = 0
+        if data:
+            taken_sets_am = int(data.pop()[0])
+        return taken_sets_am
+
+    @staticmethod
+    def get_amount(cur, flight_id, fare_conditions):
+        cur.execute("""SELECT pp.amount from rule_table pp
+JOIN flights f on pp.flight_number = f.flight_no
+WHERE f.flight_id = %s AND fare_conditions=%s
+GROUP BY f.flight_id, f.flight_no, pp.fare_conditions, pp.amount
+ORDER BY  pp.amount DESC """, [flight_id, fare_conditions])
+        a = cur.fetchall()
+        if len(a) == 0:
+            return 0
+        return int(a.pop()[0])
 
 
 def get_free_seat(all_seats, taken_seats):
